@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>VORTEX Studio</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background: #090b10;
+      color: #f3f5fa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+    .card {
+      width: 100%;
+      max-width: 340px;
+      background: #121622;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 24px 20px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+    }
+    .spin {
+      width: 34px;
+      height: 34px;
+      margin: 0 auto 14px;
+      border-radius: 50%;
+      border: 3px solid rgba(0, 229, 255, 0.2);
+      border-top-color: #00e5ff;
+      animation: sp 0.8s linear infinite;
+    }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    h1 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    p { font-size: 13px; color: #9aa3b8; line-height: 1.45; }
+    .btn {
+      display: none;
+      margin: 16px auto 0;
+      width: 100%;
+      height: 42px;
+      border: 0;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #00e5ff, #7c3aed);
+      color: #fff;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spin" id="spin"></div>
+    <h1 id="ttl">Подключаемся к студии...</h1>
+    <p id="sub">Ищем активный сервер</p>
+    <button class="btn" id="retryBtn" onclick="connectStudio()">Попробовать снова</button>
+  </div>
+
+  <script>
+    const DEFAULT_GIST_ID = "";
+
+    function showOffline(msg) {
+      document.getElementById("spin").style.display = "none";
+      document.getElementById("ttl").textContent = "Сервер сейчас на паузе";
+      document.getElementById("sub").textContent = msg || "Возможно, отключили свет или интернет. Попробуйте через пару минут.";
+      document.getElementById("retryBtn").style.display = "block";
+    }
+
+    async function fetchWithTimeout(url, ms) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), ms);
+      try {
+        return await fetch(url, { cache: "no-store", signal: ctrl.signal });
+      } finally {
+        clearTimeout(t);
+      }
+    }
+
+    async function connectStudio() {
+      document.getElementById("spin").style.display = "block";
+      document.getElementById("retryBtn").style.display = "none";
+      document.getElementById("ttl").textContent = "Подключаемся к студии...";
+      document.getElementById("sub").textContent = "Проверяем адрес сервера";
+
+      const params = new URLSearchParams(window.location.search);
+      const gistId = (params.get("g") || DEFAULT_GIST_ID || "").trim();
+      if (!gistId) {
+        showOffline("Не задан Gist ID для подключения.");
+        return;
+      }
+
+      try {
+        const gRes = await fetchWithTimeout(`https://api.github.com/gists/${encodeURIComponent(gistId)}?t=${Date.now()}`, 5000);
+        if (!gRes.ok) throw new Error("Gist HTTP " + gRes.status);
+        const gJson = await gRes.json();
+        const files = gJson.files || {};
+        const fileObj = files["vortex_api.json"] || Object.values(files)[0];
+        const cfg = fileObj && fileObj.content ? JSON.parse(fileObj.content) : {};
+        const apiBase = String(cfg.url || "").trim().replace(/\/+$/, "");
+        if (!apiBase.startsWith("https://")) {
+          showOffline("Сервер сейчас выключен. Попробуйте чуть позже.");
+          return;
+        }
+
+        document.getElementById("sub").textContent = "Проверяем соединение...";
+        const hRes = await fetchWithTimeout(`${apiBase}/api/health?t=${Date.now()}`, 4000);
+        if (!hRes.ok) throw new Error("Health " + hRes.status);
+
+        params.delete("g");
+        const qs = params.toString();
+        const dest = `${apiBase}/mobile${qs ? "?" + qs : ""}${window.location.hash || ""}`;
+        window.location.replace(dest);
+      } catch (e) {
+        showOffline("Нет связи с сервером (свет или интернет ещё не вернулись). Попробуйте через пару минут.");
+      }
+    }
+
+    connectStudio();
+  </script>
+</body>
+</html>
