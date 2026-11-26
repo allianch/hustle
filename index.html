@@ -2,13 +2,19 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>VORTEX Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>VORTEX Cut — Studio</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
+    html, body {
+      width: 100%;
+      height: 100%;
       min-height: 100vh;
-      background: #090b10;
+      overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
+      background: #07080c;
       color: #f3f5fa;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       display: flex;
@@ -20,7 +26,7 @@
     .card {
       width: 100%;
       max-width: 340px;
-      background: #121622;
+      background: #101219;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 18px;
       padding: 24px 20px;
@@ -37,7 +43,7 @@
     }
     @keyframes sp { to { transform: rotate(360deg); } }
     h1 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-    p { font-size: 13px; color: #9aa3b8; line-height: 1.45; }
+    p { font-size: 13px; color: #94a3b8; line-height: 1.45; }
     .btn {
       display: none;
       margin: 16px auto 0;
@@ -57,12 +63,28 @@
   <div class="card">
     <div class="spin" id="spin"></div>
     <h1 id="ttl">Подключаемся к студии...</h1>
-    <p id="sub">Ищем активный сервер</p>
+    <p id="sub">Открываем видеоредактор</p>
     <button class="btn" id="retryBtn" onclick="connectStudio()">Попробовать снова</button>
   </div>
 
   <script>
-    const DEFAULT_GIST_ID = "";
+    const DEFAULT_GIST_ID = "28cc9da0a82e8e1c1c73e0c6286499b1";
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+
+    function enforceTelegramFullscreen() {
+      if (!tg) return;
+      try {
+        tg.ready();
+        tg.expand();
+        if (typeof tg.disableVerticalSwipes === "function") tg.disableVerticalSwipes();
+        if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#07080c");
+        if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#07080c");
+      } catch (e) { }
+    }
+    enforceTelegramFullscreen();
+    if (tg && tg.onEvent) {
+      tg.onEvent("viewportChanged", enforceTelegramFullscreen);
+    }
 
     function showOffline(msg) {
       document.getElementById("spin").style.display = "none";
@@ -82,6 +104,7 @@
     }
 
     async function connectStudio() {
+      enforceTelegramFullscreen();
       document.getElementById("spin").style.display = "block";
       document.getElementById("retryBtn").style.display = "none";
       document.getElementById("ttl").textContent = "Подключаемся к студии...";
@@ -107,14 +130,26 @@
           return;
         }
 
-        document.getElementById("sub").textContent = "Проверяем соединение...";
-        const hRes = await fetchWithTimeout(`${apiBase}/api/health?t=${Date.now()}`, 4000);
-        if (!hRes.ok) throw new Error("Health " + hRes.status);
+        document.getElementById("sub").textContent = "Загружаем студию...";
+        const htmlRes = await fetchWithTimeout(`${apiBase}/mobile?embed=1&t=${Date.now()}`, 8000);
+        if (!htmlRes.ok) throw new Error("Mobile HTTP " + htmlRes.status);
+        const rawHtml = await htmlRes.text();
 
-        params.delete("g");
-        const qs = params.toString();
-        const dest = `${apiBase}/mobile${qs ? "?" + qs : ""}${window.location.hash || ""}`;
-        window.location.replace(dest);
+        const bootCfg = {
+          apiBase,
+          initData: (tg && tg.initData) ? tg.initData : "",
+          userToken: (params.get("ut") || "").trim(),
+          videoUrl: (params.get("url") || "").trim(),
+        };
+        const bootScript = `<script>window.__VORTEX_BOOT__=${JSON.stringify(bootCfg).replace(/</g, "\\u003c")};<` + `/script>`;
+        const patchedHtml = rawHtml.includes("<head>")
+          ? rawHtml.replace("<head>", "<head>" + bootScript)
+          : (bootScript + rawHtml);
+
+        enforceTelegramFullscreen();
+        document.open();
+        document.write(patchedHtml);
+        document.close();
       } catch (e) {
         showOffline("Нет связи с сервером (свет или интернет ещё не вернулись). Попробуйте через пару минут.");
       }
