@@ -64,98 +64,119 @@
     <div class="spin" id="spin"></div>
     <h1 id="ttl">Подключаемся к студии...</h1>
     <p id="sub">Открываем видеоредактор</p>
-    <button class="btn" id="retryBtn" onclick="connectStudio()">Попробовать снова</button>
+    <button class="btn" id="retryBtn" type="button">Попробовать снова</button>
   </div>
 
   <script>
-    const DEFAULT_GIST_ID = "28cc9da0a82e8e1c1c73e0c6286499b1";
-    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    (() => {
+      "use strict";
+      const DEFAULT_GIST_ID = "28cc9da0a82e8e1c1c73e0c6286499b1";
+      const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 
-    function enforceTelegramFullscreen() {
-      if (!tg) return;
-      try {
-        tg.ready();
-        tg.expand();
-        if (typeof tg.disableVerticalSwipes === "function") tg.disableVerticalSwipes();
-        if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#07080c");
-        if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#07080c");
-      } catch (e) { }
-    }
-    enforceTelegramFullscreen();
-    if (tg && tg.onEvent) {
-      tg.onEvent("viewportChanged", enforceTelegramFullscreen);
-    }
-
-    function showOffline(msg) {
-      document.getElementById("spin").style.display = "none";
-      document.getElementById("ttl").textContent = "Сервер сейчас на паузе";
-      document.getElementById("sub").textContent = msg || "Возможно, отключили свет или интернет. Попробуйте через пару минут.";
-      document.getElementById("retryBtn").style.display = "block";
-    }
-
-    async function fetchWithTimeout(url, ms) {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), ms);
-      try {
-        return await fetch(url, { cache: "no-store", signal: ctrl.signal });
-      } finally {
-        clearTimeout(t);
+      function enforceTelegramFullscreen() {
+        if (!tg) return;
+        try {
+          tg.ready();
+          tg.expand();
+          if (typeof tg.disableVerticalSwipes === "function") tg.disableVerticalSwipes();
+          if (typeof tg.setHeaderColor === "function") tg.setHeaderColor("#07080c");
+          if (typeof tg.setBackgroundColor === "function") tg.setBackgroundColor("#07080c");
+        } catch (e) { }
       }
-    }
-
-    async function connectStudio() {
       enforceTelegramFullscreen();
-      document.getElementById("spin").style.display = "block";
-      document.getElementById("retryBtn").style.display = "none";
-      document.getElementById("ttl").textContent = "Подключаемся к студии...";
-      document.getElementById("sub").textContent = "Проверяем адрес сервера";
-
-      const params = new URLSearchParams(window.location.search);
-      const gistId = (params.get("g") || DEFAULT_GIST_ID || "").trim();
-      if (!gistId) {
-        showOffline("Не задан Gist ID для подключения.");
-        return;
+      if (tg && tg.onEvent) {
+        tg.onEvent("viewportChanged", enforceTelegramFullscreen);
       }
 
-      try {
-        const gRes = await fetchWithTimeout(`https://api.github.com/gists/${encodeURIComponent(gistId)}?t=${Date.now()}`, 5000);
-        if (!gRes.ok) throw new Error("Gist HTTP " + gRes.status);
-        const gJson = await gRes.json();
-        const files = gJson.files || {};
-        const fileObj = files["vortex_api.json"] || Object.values(files)[0];
-        const cfg = fileObj && fileObj.content ? JSON.parse(fileObj.content) : {};
-        const apiBase = String(cfg.url || "").trim().replace(/\/+$/, "");
-        if (!apiBase.startsWith("https://")) {
-          showOffline("Сервер сейчас выключен. Попробуйте чуть позже.");
+      function showOffline(msg) {
+        const sp = document.getElementById("spin");
+        const ttl = document.getElementById("ttl");
+        const sub = document.getElementById("sub");
+        const btn = document.getElementById("retryBtn");
+        if (sp) sp.style.display = "none";
+        if (ttl) ttl.textContent = "Сервер сейчас на паузе";
+        if (sub) sub.textContent = msg || "Возможно, отключили свет или интернет. Попробуйте через пару минут.";
+        if (btn) btn.style.display = "block";
+      }
+
+      async function fetchWithTimeout(url, ms) {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), ms);
+        try {
+          return await fetch(url, { cache: "no-store", signal: ctrl.signal });
+        } finally {
+          clearTimeout(t);
+        }
+      }
+
+      async function connectStudio() {
+        enforceTelegramFullscreen();
+        const sp = document.getElementById("spin");
+        const btn = document.getElementById("retryBtn");
+        const ttl = document.getElementById("ttl");
+        const sub = document.getElementById("sub");
+        if (sp) sp.style.display = "block";
+        if (btn) btn.style.display = "none";
+        if (ttl) ttl.textContent = "Подключаемся к студии...";
+        if (sub) sub.textContent = "Проверяем адрес сервера";
+
+        const params = new URLSearchParams(window.location.search);
+        const gistId = (params.get("g") || DEFAULT_GIST_ID || "").trim();
+        let utParam = (params.get("ut") || "").trim();
+        try {
+          if (utParam) localStorage.setItem("vortex_user_token", utParam);
+          else utParam = (localStorage.getItem("vortex_user_token") || "").trim();
+        } catch (e) { }
+
+        if (!gistId) {
+          showOffline("Не задан Gist ID для подключения.");
           return;
         }
 
-        document.getElementById("sub").textContent = "Загружаем студию...";
-        const htmlRes = await fetchWithTimeout(`${apiBase}/mobile?embed=1&t=${Date.now()}`, 8000);
-        if (!htmlRes.ok) throw new Error("Mobile HTTP " + htmlRes.status);
-        const rawHtml = await htmlRes.text();
+        try {
+          const gRes = await fetchWithTimeout(`https://api.github.com/gists/${encodeURIComponent(gistId)}?t=${Date.now()}`, 5000);
+          if (!gRes.ok) throw new Error("Gist HTTP " + gRes.status);
+          const gJson = await gRes.json();
+          const files = gJson.files || {};
+          const fileObj = files["vortex_api.json"] || Object.values(files)[0];
+          const cfg = fileObj && fileObj.content ? JSON.parse(fileObj.content) : {};
+          const apiBase = String(cfg.url || "").trim().replace(/\/+$/, "");
+          if (!apiBase.startsWith("https://")) {
+            showOffline("Сервер сейчас выключен. Попробуйте чуть позже.");
+            return;
+          }
 
-        const bootCfg = {
-          apiBase,
-          initData: (tg && tg.initData) ? tg.initData : "",
-          userToken: (params.get("ut") || "").trim(),
-          videoUrl: (params.get("url") || "").trim(),
-        };
-        const bootScript = `<script>window.__VORTEX_BOOT__=${JSON.stringify(bootCfg).replace(/</g, "\\u003c")};<` + `/script>`;
-        const patchedHtml = rawHtml.includes("<head>")
-          ? rawHtml.replace("<head>", "<head>" + bootScript)
-          : (bootScript + rawHtml);
+          if (sub) sub.textContent = "Загружаем студию...";
+          const htmlRes = await fetchWithTimeout(`${apiBase}/mobile?embed=1&t=${Date.now()}`, 8000);
+          if (!htmlRes.ok) throw new Error("Mobile HTTP " + htmlRes.status);
+          let rawHtml = await htmlRes.text();
+          // telegram-web-app.js уже загружен на этом window — повторная загрузка внутри document.write не нужна
+          rawHtml = rawHtml.replace(/<script\s+src="https:\/\/telegram\.org\/js\/telegram-web-app\.js"><\/script>/i, "");
 
-        enforceTelegramFullscreen();
-        document.open();
-        document.write(patchedHtml);
-        document.close();
-      } catch (e) {
-        showOffline("Нет связи с сервером (свет или интернет ещё не вернулись). Попробуйте через пару минут.");
+          const bootCfg = {
+            apiBase,
+            initData: (tg && tg.initData) ? tg.initData : "",
+            userToken: utParam,
+            videoUrl: (params.get("url") || "").trim(),
+          };
+          const bootScript = `<script>window.__VORTEX_BOOT__=${JSON.stringify(bootCfg).replace(/</g, "\\u003c")};<` + `/script>`;
+          const patchedHtml = rawHtml.includes("<head>")
+            ? rawHtml.replace("<head>", "<head>" + bootScript)
+            : (bootScript + rawHtml);
+
+          enforceTelegramFullscreen();
+          document.open();
+          document.write(patchedHtml);
+          document.close();
+        } catch (e) {
+          showOffline("Нет связи с сервером (свет или интернет ещё не вернулись). Попробуйте через пару минут.");
+        }
       }
-    }
 
-    connectStudio();
+      const retryEl = document.getElementById("retryBtn");
+      if (retryEl) retryEl.addEventListener("click", connectStudio);
+      connectStudio();
+    })();
   </script>
 </body>
 </html>
