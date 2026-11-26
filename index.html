@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>VORTEX Cut — Переход в студию...</title>
+  <title>VORTEX Cut — Studio</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -13,6 +13,7 @@
       min-height: 100vh;
       overflow: hidden;
       overscroll-behavior: none;
+      touch-action: none;
       background: #07080c;
       color: #f3f5fa;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -83,6 +84,9 @@
         } catch (e) { }
       }
       enforceFullscreen();
+      if (tg && tg.onEvent) {
+        tg.onEvent("viewportChanged", enforceFullscreen);
+      }
 
       function showOffline(msg) {
         const sp = document.getElementById("spin");
@@ -105,7 +109,7 @@
         }
       }
 
-      async function go() {
+      async function connectStudio() {
         enforceFullscreen();
         const sp = document.getElementById("spin");
         const btn = document.getElementById("retryBtn");
@@ -114,7 +118,7 @@
         if (sp) sp.style.display = "block";
         if (btn) btn.style.display = "none";
         if (ttl) ttl.textContent = "Подключаемся к студии...";
-        if (sub) sub.textContent = "Ищем активный сервер";
+        if (sub) sub.textContent = "Проверяем адрес сервера";
 
         const params = new URLSearchParams(window.location.search);
         const gistId = (params.get("g") || DEFAULT_GIST_ID || "").trim();
@@ -142,26 +146,39 @@
             return;
           }
 
-          const hRes = await fetchWithTimeout(`${apiBase}/api/health?t=${Date.now()}`, 4000);
-          if (!hRes.ok) throw new Error("Health HTTP " + hRes.status);
+          if (sub) sub.textContent = "Загружаем студию...";
+          const htmlRes = await fetchWithTimeout(`${apiBase}/mobile?embed=1&t=${Date.now()}`, 8000);
+          if (!htmlRes.ok) throw new Error("Mobile HTTP " + htmlRes.status);
+          let rawHtml = await htmlRes.text();
+          // Оставляем origin allianch.github.io (иначе iOS WKWebView отключает TelegramWebviewProxy: close/haptics/expand/swipes)
+          rawHtml = rawHtml.replace(/<script\s+src="https:\/\/telegram\.org\/js\/telegram-web-app\.js"><\/script>/i, "");
 
-          const target = new URL(`${apiBase}/mobile`);
-          const vidUrl = (params.get("url") || "").trim();
-          if (vidUrl) target.searchParams.set("url", vidUrl);
-          if (utParam) target.searchParams.set("ut", utParam);
+          const bootCfg = {
+            apiBase,
+            initData: (tg && tg.initData) ? tg.initData : "",
+            userToken: utParam,
+            videoUrl: (params.get("url") || "").trim(),
+          };
+          const bootScript = `<script>window.__VORTEX_BOOT__=${JSON.stringify(bootCfg).replace(/</g, "\\u003c")};<` + `/script>`;
+          const patchedHtml = rawHtml.includes("<head>")
+            ? rawHtml.replace("<head>", "<head>" + bootScript)
+            : (bootScript + rawHtml);
 
-          // Сохраняем Telegram hash (#tgWebAppData=...&tgWebAppVersion=...), иначе ломаются fullscreen и disableVerticalSwipes
-          const hash = window.location.hash || "";
+          if (tg && tg.offEvent) {
+            try { tg.offEvent("viewportChanged", enforceFullscreen); } catch (e) { }
+          }
           enforceFullscreen();
-          window.location.replace(target.toString() + hash);
+          document.open();
+          document.write(patchedHtml);
+          document.close();
         } catch (e) {
           showOffline("Нет связи с сервером (свет или интернет ещё не вернулись). Попробуйте через пару минут.");
         }
       }
 
       const retryEl = document.getElementById("retryBtn");
-      if (retryEl) retryEl.addEventListener("click", go);
-      go();
+      if (retryEl) retryEl.addEventListener("click", connectStudio);
+      connectStudio();
     })();
   </script>
 </body>
